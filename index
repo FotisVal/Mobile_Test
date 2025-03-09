@@ -8,6 +8,9 @@ import android.content.pm.PackageManager;
 import android.location.Location;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
+import android.nfc.tech.Ndef;
+import android.nfc.tech.NdefMessage;
+import android.nfc.tech.NdefRecord;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.Toast;
@@ -20,8 +23,12 @@ import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
 
+import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
+
 public class MainActivity extends AppCompatActivity {
 
+    private static final String NFC_EXPECTED_VALUE = "NFC_SAVE_LOCATION_12345";
     private NfcAdapter nfcAdapter;
     private FusedLocationProviderClient locationClient;
 
@@ -49,7 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private void enableNfcForegroundDispatch() {
         Intent intent = new Intent(this, getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_MUTABLE);
-        IntentFilter[] filters = new IntentFilter[]{new IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED)};
+        IntentFilter[] filters = new IntentFilter[]{new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED)};
         if (nfcAdapter != null) {
             nfcAdapter.enableForegroundDispatch(this, pendingIntent, filters, null);
         }
@@ -64,10 +71,36 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(intent.getAction())) {
+        if (NfcAdapter.ACTION_NDEF_DISCOVERED.equals(intent.getAction())) {
             Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-            saveCurrentLocation();
+            String nfcData = readNfcTag(tag);
+            if (NFC_EXPECTED_VALUE.equals(nfcData)) {
+                saveCurrentLocation();
+            } else {
+                Toast.makeText(this, "Μη έγκυρο NFC tag", Toast.LENGTH_SHORT).show();
+            }
         }
+    }
+
+    private String readNfcTag(Tag tag) {
+        Ndef ndef = Ndef.get(tag);
+        if (ndef == null) {
+            return null;
+        }
+        try {
+            ndef.connect();
+            NdefMessage ndefMessage = ndef.getNdefMessage();
+            NdefRecord[] records = ndefMessage.getRecords();
+            for (NdefRecord record : records) {
+                if (record.getTnf() == NdefRecord.TNF_WELL_KNOWN && Arrays.equals(record.getType(), NdefRecord.RTD_TEXT)) {
+                    byte[] payload = record.getPayload();
+                    return new String(payload, 1, payload.length - 1, "UTF-8");
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     private void saveCurrentLocation() {
